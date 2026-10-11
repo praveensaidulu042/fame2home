@@ -77,7 +77,7 @@ export default function App() {
         // Backend server is not running
         setBackendStatus({
           type: 'offline',
-          message: 'Backend server not running at http://localhost:5000. Operating in local demo mode.'
+          message: `Backend server unreachable (${health.testedUrl || 'API offline'}). Operating in local demo mode.`
         });
         return;
       }

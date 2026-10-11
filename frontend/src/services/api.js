@@ -3,37 +3,57 @@
  * Connects React UI to Node.js / Express backend at http://localhost:5000/api
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+let API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+
+export function getApiBaseUrl() {
+  return API_BASE_URL;
+}
+
+export function setApiBaseUrl(url) {
+  API_BASE_URL = url;
+}
 
 /**
  * Checks backend health and Neon database connection status
- * @returns {Promise<{online: boolean, data?: any, error?: string}>}
+ * Probes active API URL with seamless fallback across common local ports
+ * @returns {Promise<{online: boolean, data?: any, error?: string, testedUrl?: string, dbConnected?: boolean, dbConfigured?: boolean}>}
  */
 export async function checkBackendHealth() {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500);
+  const candidateUrls = import.meta.env.VITE_API_URL
+    ? [import.meta.env.VITE_API_URL]
+    : [API_BASE_URL, 'http://localhost:5001/api', 'http://localhost:5000/api'].filter((v, i, a) => a.indexOf(v) === i);
 
-    const res = await fetch(`${API_BASE_URL}/health`, {
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
+  for (const baseUrl of candidateUrls) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
 
-    const data = await res.json();
-    return {
-      online: res.ok || res.status === 503, // Server is up even if DB is pending setup
-      data,
-      dbConnected: data?.database?.connected || false,
-      dbConfigured: data?.database?.configured || false
-    };
-  } catch (err) {
-    return {
-      online: false,
-      dbConnected: false,
-      dbConfigured: false,
-      error: err.name === 'AbortError' ? 'Connection timed out' : 'Backend server unreachable'
-    };
+      const res = await fetch(`${baseUrl}/health`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const data = await res.json();
+      API_BASE_URL = baseUrl;
+      return {
+        online: res.ok || res.status === 503, // Server is up even if DB is pending setup
+        data,
+        testedUrl: baseUrl,
+        dbConnected: data?.database?.connected || false,
+        dbConfigured: data?.database?.configured || false
+      };
+    } catch {
+      // Continue to next candidate port
+    }
   }
+
+  return {
+    online: false,
+    testedUrl: candidateUrls[0],
+    dbConnected: false,
+    dbConfigured: false,
+    error: 'Backend server unreachable'
+  };
 }
 
 /**

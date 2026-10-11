@@ -156,14 +156,15 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start Server only if not in test mode
+// Start Server with safe port conflict handling
 let serverInstance = null;
-if (process.env.NODE_ENV !== 'test') {
-  serverInstance = app.listen(PORT, async () => {
+
+function startServer(portToUse, remainingAttempts = 3) {
+  const server = app.listen(portToUse, async () => {
     console.log(`\n==================================================`);
-    console.log(`🌱 Farm2Home Backend API running at http://localhost:${PORT}`);
-    console.log(`📡 Health Check: http://localhost:${PORT}/api/health`);
-    console.log(`📦 Products API: http://localhost:${PORT}/api/products`);
+    console.log(`🌱 Farm2Home Backend API running at http://localhost:${portToUse}`);
+    console.log(`📡 Health Check: http://localhost:${portToUse}/api/health`);
+    console.log(`📦 Products API: http://localhost:${portToUse}/api/products`);
     console.log(`==================================================\n`);
 
     if (isDatabaseConfigured()) {
@@ -182,14 +183,29 @@ if (process.env.NODE_ENV !== 'test') {
     }
   });
 
-  serverInstance.on('error', (error) => {
+  server.on('error', (error) => {
     if (error.code === 'EADDRINUSE') {
-      console.error(`Port ${PORT} is already in use. Stop the confirmed duplicate Farm2Home server or set PORT to an available port.`);
+      console.warn(`⚠️ Port ${portToUse} is already in use.`);
+      if (remainingAttempts > 0) {
+        const nextPort = Number(portToUse) + 1;
+        console.log(`🔄 Port conflict detected. Automatically trying next available port: ${nextPort}...`);
+        startServer(nextPort, remainingAttempts - 1);
+      } else {
+        console.error(`❌ Port conflict unresolved. Please free port ${PORT} or configure an available PORT in backend/.env.`);
+        process.exitCode = 1;
+      }
     } else {
       console.error('Backend failed to start:', error.message);
+      process.exitCode = 1;
     }
-    process.exitCode = 1;
   });
+
+  serverInstance = server;
+  return server;
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  startServer(PORT);
 }
 
 export { app, serverInstance };
